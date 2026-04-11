@@ -60,12 +60,6 @@ variable "ec2_ami_id" {
   default     = "ami-02289b3fe036fe5cd" # Amazon Linux 2023 kernel-6.1 AMI
 }
 
-variable "ec2_associate_public_ip_address" {
-  type        = bool
-  description = "Whether to associate a public IP to the EC2 instance"
-  default     = false
-}
-
 variable "ec2_instance_size" {
   type        = string
   description = "EC2 instance size"

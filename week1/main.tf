@@ -10,13 +10,19 @@ terraform {
 provider "aws" {
   region  = var.region
   profile = "terraform"
+
+  default_tags {
+    tags = {
+      Environment = var.environment
+    }
+  }
 }
 
 locals {
   prefix = "${var.project}-${var.environment}"
 }
 
-resource "aws_vpc" "vpc" {
+resource "aws_vpc" "main" {
   cidr_block = var.cidr_block
 
   tags = {
@@ -24,11 +30,11 @@ resource "aws_vpc" "vpc" {
   }
 }
 
-resource "aws_subnet" "public_subnet" {
+resource "aws_subnet" "public" {
   count             = var.public_subnet_count
-  vpc_id            = aws_vpc.vpc.id
+  vpc_id            = aws_vpc.main.id
   # CIDR blocks for public subnets start after the public subnet
-  cidr_block        = cidrsubnet(aws_vpc.vpc.cidr_block, 8, var.private_subnet_count + count.index)
+  cidr_block        = cidrsubnet(aws_vpc.main.cidr_block, 8, var.private_subnet_count + count.index)
   availability_zone = var.azs[count.index]
 
   tags = {
@@ -36,10 +42,10 @@ resource "aws_subnet" "public_subnet" {
   }
 }
 
-resource "aws_subnet" "private_subnet" {
+resource "aws_subnet" "private" {
   count             = var.private_subnet_count
-  vpc_id            = aws_vpc.vpc.id
-  cidr_block        = cidrsubnet(aws_vpc.vpc.cidr_block, 8, count.index)
+  vpc_id            = aws_vpc.main.id
+  cidr_block        = cidrsubnet(aws_vpc.main.cidr_block, 8, count.index)
   availability_zone = var.azs[count.index]
 
   tags = {
@@ -47,45 +53,45 @@ resource "aws_subnet" "private_subnet" {
   }
 }
 
-resource "aws_internet_gateway" "internet_gateway" {
-  vpc_id = aws_vpc.vpc.id
+resource "aws_internet_gateway" "main" {
+  vpc_id = aws_vpc.main.id
 
   tags = {
     Name = "${local.prefix}-internet-gateway"
   }
 }
 
-resource "aws_route_table" "public_route_table" {
-  vpc_id = aws_vpc.vpc.id
+resource "aws_route_table" "public" {
+  vpc_id = aws_vpc.main.id
 
   tags = {
     Name = "${local.prefix}-public-route-table"
   }
 }
 
-resource "aws_route" "public_route" {
-  route_table_id         = aws_route_table.public_route_table.id
+resource "aws_route" "public" {
+  route_table_id         = aws_route_table.public.id
   destination_cidr_block = "0.0.0.0/0"
-  gateway_id             = aws_internet_gateway.internet_gateway.id
+  gateway_id             = aws_internet_gateway.main.id
 }
 
-resource "aws_route_table_association" "public_subnet_association" {
-  count          = length(aws_subnet.public_subnet)
-  subnet_id      = aws_subnet.public_subnet[count.index].id
-  route_table_id = aws_route_table.public_route_table.id
+resource "aws_route_table_association" "public" {
+  count          = length(aws_subnet.public)
+  subnet_id      = aws_subnet.public[count.index].id
+  route_table_id = aws_route_table.public.id
 }
 
 resource "aws_route_table" "private_route_table" {
-  vpc_id = aws_vpc.vpc.id
+  vpc_id = aws_vpc.main.id
 
   tags = {
     Name = "${local.prefix}-private-route-table"
   }
 }
 
-resource "aws_route_table_association" "private_subnet_association" {
-  count          = length(aws_subnet.private_subnet)
-  subnet_id      = aws_subnet.private_subnet[count.index].id
+resource "aws_route_table_association" "private" {
+  count          = length(aws_subnet.private)
+  subnet_id      = aws_subnet.private[count.index].id
   route_table_id = aws_route_table.private_route_table.id
 }
 
@@ -97,9 +103,9 @@ resource "aws_eip" "eip" {
   }
 }
 
-resource "aws_nat_gateway" "nat_gateway" {
+resource "aws_nat_gateway" "main" {
   allocation_id = aws_eip.eip.id
-  subnet_id     = aws_subnet.public_subnet[0].id
+  subnet_id     = aws_subnet.public[0].id
 
   tags = {
     Name = "${local.prefix}-nat-gateway"
@@ -109,15 +115,15 @@ resource "aws_nat_gateway" "nat_gateway" {
 resource "aws_route" "nat_gateway_route" {
   route_table_id         = aws_route_table.private_route_table.id
   destination_cidr_block = "0.0.0.0/0"
-  nat_gateway_id         = aws_nat_gateway.nat_gateway.id
+  nat_gateway_id         = aws_nat_gateway.main.id
 
   depends_on = [aws_eip.eip]
 }
 
-resource "aws_security_group" "web_security_group" {
-  name = "web_security_group"
+resource "aws_security_group" "web" {
+  name        = "${local.prefix}-web-security-group"
   description = "Security group for incoming HTTP/HTTPS and SSH"
-  vpc_id = aws_vpc.vpc.id
+  vpc_id      = aws_vpc.main.id
 
   ingress {
     description = "Inbound SSH"
@@ -156,17 +162,17 @@ resource "aws_security_group" "web_security_group" {
   }
 }
 
-resource "aws_security_group" "app_security_group" {
-  name = "app_security_group"
+resource "aws_security_group" "app" {
+  name        = "${local.prefix}-app-security-group"
   description = "Security group for applications"
-  vpc_id = aws_vpc.vpc.id
+  vpc_id = aws_vpc.main.id
 
   ingress {
     description = "Inbound from Web security group"
     from_port = 0
     to_port = 0
     protocol = "-1"
-    security_groups = [aws_security_group.web_security_group.id]
+    security_groups = [aws_security_group.web.id]
   }
 
   egress {
@@ -182,29 +188,29 @@ resource "aws_security_group" "app_security_group" {
   }
 }
 
-resource "aws_key_pair" "key_pair" {
+resource "aws_key_pair" "personal" {
   key_name = "personal-key-pair"
   public_key = file(var.public_key_location)
 }
 
-resource "aws_instance" "ec2" {
-  ami                    = var.ec2_ami_id
+resource "aws_launch_template" "server" {
+  image_id               = var.ec2_ami_id
   instance_type          = var.ec2_instance_size
-  vpc_security_group_ids = [aws_security_group.web_security_group.id]
-  subnet_id              = aws_subnet.public_subnet[0].id
-  key_name               = aws_key_pair.key_pair.key_name
-  associate_public_ip_address = var.ec2_associate_public_ip_address
-  root_block_device {
-    delete_on_termination = var.disk.delete_on_termination
-    encrypted             = var.disk.encrypted
-    volume_size           = var.disk.volume_size
-    volume_type           = var.disk.volume_type
-  }
-  tags = {
-    Name = "${local.prefix}-ec2"
+  vpc_security_group_ids = [aws_security_group.web.id]
+  key_name               = aws_key_pair.personal.key_name
+
+  block_device_mappings {
+    device_name = "/dev/xvda"
+
+    ebs {
+      delete_on_termination = var.disk.delete_on_termination
+      encrypted             = var.disk.encrypted
+      volume_size           = var.disk.volume_size
+      volume_type           = var.disk.volume_type
+    }
   }
 
-  user_data = <<-EOF
+  user_data = base64encode(<<-EOF
       #!/bin/bash
       sudo dnf update -y
       sudo dnf install nginx -y
@@ -212,25 +218,26 @@ resource "aws_instance" "ec2" {
       sudo systemctl start nginx
       sudo systemctl enable nginx
     EOF
+  )
 }
 
 # The Application Load Balancer
-resource "aws_lb" "lb" {
+resource "aws_lb" "main" {
   name               = "${local.prefix}-lb"
   internal           = false
   load_balancer_type = "application"
-  security_groups    = [aws_security_group.web_security_group.id]
-  subnets            = aws_subnet.public_subnet[*].id
+  security_groups    = [aws_security_group.web.id]
+  subnets            = aws_subnet.public[*].id
 
   tags = {
     Name = "${local.prefix}-lb"
   }
 }
 
-resource "aws_lb_target_group" "lb_tg" {
+resource "aws_lb_target_group" "main" {
   port        = 80
   protocol    = "HTTP"
-  vpc_id      = aws_vpc.vpc.id
+  vpc_id      = aws_vpc.main.id
 
   # Health check configuration
   health_check {
@@ -253,19 +260,42 @@ resource "aws_lb_target_group" "lb_tg" {
   }
 }
 
-resource "aws_lb_listener" "lb_listener" {
-  load_balancer_arn = aws_lb.lb.arn
+resource "aws_lb_listener" "main" {
+  load_balancer_arn = aws_lb.main.arn
   port              = 80
   protocol          = "HTTP"
 
   default_action {
     type             = "forward"
-    target_group_arn = aws_lb_target_group.lb_tg.arn
+    target_group_arn = aws_lb_target_group.main.arn
   }
 }
 
-resource "aws_lb_target_group_attachment" "lb_tg_attachment" {
-  target_group_arn = aws_lb_target_group.lb_tg.arn
-  target_id        = aws_instance.ec2.id
-  port             = 80
+resource "aws_autoscaling_group" "servers" {
+  name                  = "${local.prefix}-autoscaling-group"
+  desired_capacity      = 2
+  max_size              = 4
+  min_size              = 2
+  health_check_type     = "ELB"
+  termination_policies  = ["OldestInstance"]
+  vpc_zone_identifier   = aws_subnet.private[*].id
+  target_group_arns     = [aws_lb_target_group.main.arn]
+
+  launch_template {
+    id      = aws_launch_template.server.id
+    version = "$Latest"
+  }
+}
+
+resource "aws_autoscaling_policy" "cpu_target_tracking" {
+  name                  = "${local.prefix}-autoscaling-policy"
+  autoscaling_group_name = aws_autoscaling_group.servers.name
+  policy_type            = "TargetTrackingScaling"
+
+  target_tracking_configuration {
+    predefined_metric_specification {
+      predefined_metric_type = "ASGAverageCPUUtilization"
+    }
+    target_value = 60.0
+  }
 }
