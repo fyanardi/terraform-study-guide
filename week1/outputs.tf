@@ -22,3 +22,8 @@ output "app_security_group_id" {
   description = "App Security Group ID"
   value       = aws_security_group.app_security_group.id
 }
+
+output "alb_dns_name" {
+  description = "ALB DNS name"
+  value       = aws_lb.lb.dns_name
+}

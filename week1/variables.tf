@@ -48,3 +48,25 @@ variable "allowed_ssh_cidr_blocks" {
   type        = list(string)
   description = "SSH CIDR blocks allowed to access the VPC"
 }
+
+variable "ec2_ami_id" {
+  type        = string
+  description = "EC2 AMI ID"
+  default     = "ami-02289b3fe036fe5cd" # Amazon Linux 2023 kernel-6.1 AMI
+}
+
+variable "ec2_instance_size" {
+  type        = string
+  description = "EC2 instance size"
+  default     = "t3.micro"
+}
+
+variable "disk" {
+  description = "OS image to deploy"
+  type = object({
+    delete_on_termination = bool
+    encrypted             = bool
+    volume_size           = string
+    volume_type           = string
+  })
+}

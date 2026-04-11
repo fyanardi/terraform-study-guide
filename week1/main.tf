@@ -181,3 +181,84 @@ resource "aws_security_group" "app_security_group" {
     Name = "${local.prefix}-app-security-group"
   }
 }
+
+resource "aws_instance" "ec2" {
+  ami                    = var.ec2_ami_id
+  instance_type          = var.ec2_instance_size
+  vpc_security_group_ids = [aws_security_group.web_security_group.id]
+  subnet_id              = aws_subnet.public_subnet[0].id
+  root_block_device {
+    delete_on_termination = var.disk.delete_on_termination
+    encrypted             = var.disk.encrypted
+    volume_size           = var.disk.volume_size
+    volume_type           = var.disk.volume_type
+  }
+  tags = {
+    Name = "${local.prefix}-ec2"
+  }
+
+  user_data = <<-EOF
+      #!/bin/bash
+      yum update -y
+      amazon-linux-extras install nginx1.12
+      echo "Hello from $(hostname)" > /usr/share/nginx/html/index.html
+      systemctl start nginx
+      systemctl enable nginx
+    EOF
+}
+
+# The Application Load Balancer
+resource "aws_lb" "lb" {
+  name               = "${local.prefix}-lb"
+  internal           = false
+  load_balancer_type = "application"
+  security_groups    = [aws_security_group.web_security_group.id]
+  subnets            = aws_subnet.public_subnet[*].id
+
+  tags = {
+    Name = "${local.prefix}-lb"
+  }
+}
+
+resource "aws_lb_target_group" "lb_tg" {
+  port        = 80
+  protocol    = "HTTP"
+  vpc_id      = aws_vpc.vpc.id
+
+  # Health check configuration
+  health_check {
+    enabled             = true
+    path                = "/"
+    port                = "traffic-port"
+    protocol            = "HTTP"
+    healthy_threshold   = 2
+    unhealthy_threshold = 3
+    timeout             = 5
+    interval            = 30
+    matcher             = "200"
+  }
+
+  # Deregistration delay - how long to wait before removing targets
+  deregistration_delay = 30
+
+  tags = {
+    Name = "${local.prefix}-lb-tg"
+  }
+}
+
+resource "aws_lb_listener" "lb_listener" {
+  load_balancer_arn = aws_lb.lb.arn
+  port              = 80
+  protocol          = "HTTP"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.lb_tg.arn
+  }
+}
+
+resource "aws_lb_target_group_attachment" "lb_tg_attachment" {
+  target_group_arn = aws_lb_target_group.lb_tg.arn
+  target_id        = aws_instance.ec2.id
+  port             = 80
+}
