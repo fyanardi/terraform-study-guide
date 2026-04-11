@@ -182,11 +182,18 @@ resource "aws_security_group" "app_security_group" {
   }
 }
 
+resource "aws_key_pair" "key_pair" {
+  key_name = "personal-key-pair"
+  public_key = file(var.public_key_location)
+}
+
 resource "aws_instance" "ec2" {
   ami                    = var.ec2_ami_id
   instance_type          = var.ec2_instance_size
   vpc_security_group_ids = [aws_security_group.web_security_group.id]
   subnet_id              = aws_subnet.public_subnet[0].id
+  key_name               = aws_key_pair.key_pair.key_name
+  associate_public_ip_address = var.ec2_associate_public_ip_address
   root_block_device {
     delete_on_termination = var.disk.delete_on_termination
     encrypted             = var.disk.encrypted
@@ -199,11 +206,11 @@ resource "aws_instance" "ec2" {
 
   user_data = <<-EOF
       #!/bin/bash
-      yum update -y
-      amazon-linux-extras install nginx1.12
-      echo "Hello from $(hostname)" > /usr/share/nginx/html/index.html
-      systemctl start nginx
-      systemctl enable nginx
+      sudo dnf update -y
+      sudo dnf install nginx -y
+      sudo echo "Hello from $(hostname)" > /usr/share/nginx/html/index.html
+      sudo systemctl start nginx
+      sudo systemctl enable nginx
     EOF
 }
 

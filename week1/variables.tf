@@ -49,10 +49,21 @@ variable "allowed_ssh_cidr_blocks" {
   description = "SSH CIDR blocks allowed to access the VPC"
 }
 
+variable "public_key_location" {
+  type        = string
+  description = "Public key location to be registered with the EC2 instance"
+}
+
 variable "ec2_ami_id" {
   type        = string
   description = "EC2 AMI ID"
   default     = "ami-02289b3fe036fe5cd" # Amazon Linux 2023 kernel-6.1 AMI
+}
+
+variable "ec2_associate_public_ip_address" {
+  type        = bool
+  description = "Whether to associate a public IP to the EC2 instance"
+  default     = false
 }
 
 variable "ec2_instance_size" {

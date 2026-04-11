@@ -23,6 +23,11 @@ output "app_security_group_id" {
   value       = aws_security_group.app_security_group.id
 }
 
+output "ec2_public_ip" {
+  description = "EC2 public IP"
+  value       = aws_instance.ec2.public_ip
+}
+
 output "alb_dns_name" {
   description = "ALB DNS name"
   value       = aws_lb.lb.dns_name
